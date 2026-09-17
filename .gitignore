@@ -1,0 +1,26 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Secretos ----
+.env
+.env.*
+!.env.example
+
+# ---- Datos y vectores (no versionar corpus ni indices) ----
+data/vectorstore/
+data/raw/
+*.faiss
+*.pkl
+*.db
+*.sqlite3
+
+# ---- Varios ----
+*.log
+.DS_Store
