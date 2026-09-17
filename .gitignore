@@ -24,3 +24,11 @@ data/raw/
 # ---- Varios ----
 *.log
 .DS_Store
+# ---- Archivos de Inteligencia Artificial ----
+.claude/
+.impeccable/
+.gemini/
+.cursor/
+.cline/
+AGENTS.md
+CLAUDE.md

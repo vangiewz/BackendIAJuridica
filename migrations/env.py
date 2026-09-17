@@ -8,7 +8,7 @@ from app.core.database import normalizar_url
 from app.models.shared.base import Base
 
 # Importar todos los modelos para que Alembic los detecte
-import app.models.auth.usuario
+import app.models.shared.registro
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
