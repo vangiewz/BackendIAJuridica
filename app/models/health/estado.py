@@ -7,3 +7,4 @@ class HealthResponse(BaseModel):
     app_name: str
     version: str
     environment: str
+    database: Literal["ok", "error", "no configurada"]

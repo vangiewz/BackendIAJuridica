@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from app.core.config import Settings, get_settings
-from app.models.health import HealthResponse
-from app.controllers.health_controller import obtener_estado
+from app.models.health.estado import HealthResponse
+from app.controllers.health.estado_controller import obtener_estado
 
 router = APIRouter(prefix="/health", tags=["health"])
 

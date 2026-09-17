@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     environment: str = "development"
     api_prefix: str = "/api/v1"
+    database_url: str = ""        # viene de DATABASE_URL en el .env
     
     model_config = SettingsConfigDict(env_file=".env")
 

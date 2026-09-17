@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.core.config import get_settings
-from app.views.health import router as health_router
+from app.views.health.estado import router as health_router
 
 def create_app() -> FastAPI:
     """Construye y configura la instancia principal de FastAPI."""
