@@ -47,4 +47,10 @@ class ArticuloDetalle(BaseModel):
 class NodoIndice(BaseModel):
     tipo: str
     nombre: str
+    desde: int
+    hasta: int
+    cantidad: int
+    numeros: list[int] = Field(default_factory=list)
     hijos: list["NodoIndice"] = Field(default_factory=list)
+
+NodoIndice.model_rebuild()
