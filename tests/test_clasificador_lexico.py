@@ -1,7 +1,7 @@
 import pytest
 from app.models.shared.enums import AreaJuridica
 from app.services.consultas.clasificador_lexico import clasificar, Clasificacion
-from app.services.consultas.normalizacion import normalizar
+from app.services.shared.normalizacion import normalizar
 
 def test_clasificacion_contratos_terreno_transferencia():
     # "Compré un terreno, pagué todo, pero el vendedor no quiere hacer la transferencia" -> contratos

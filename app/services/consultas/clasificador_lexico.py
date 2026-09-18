@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from app.models.shared.enums import AreaJuridica
-from app.services.consultas.normalizacion import normalizar
+from app.services.shared.normalizacion import normalizar
 from app.services.consultas.diccionario_areas import DICCIONARIO
 
 UMBRAL_MINIMO = 1.0

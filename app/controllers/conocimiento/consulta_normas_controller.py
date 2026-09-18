@@ -45,26 +45,40 @@ def leer_articulo(db: Session, codigo: str, numero: int) -> ArticuloDetalle:
         nota_vigencia=norma.nota_vigencia, fuente_nombre=norma.fuente_nombre, fuente_url=norma.fuente_url
     )
 
-def _agregar_nodo(padre_lista: list[NodoIndice], tipo: str, nombre: str) -> NodoIndice:
-    for nodo in padre_lista:
-        if nodo.tipo == tipo and nodo.nombre == nombre:
-            return nodo
-    nuevo = NodoIndice(tipo=tipo, nombre=nombre, hijos=[])
+def _agregar_nodo(padre_lista: list[NodoIndice], tipo: str, nombre: str, numero: int) -> NodoIndice:
+    if padre_lista and padre_lista[-1].tipo == tipo and padre_lista[-1].nombre == nombre:
+        return padre_lista[-1]
+    nuevo = NodoIndice(
+        tipo=tipo, nombre=nombre, desde=numero, hasta=numero, cantidad=0, numeros=[], hijos=[]
+    )
     padre_lista.append(nuevo)
     return nuevo
 
 def obtener_indice(db: Session, codigo: str) -> list[NodoIndice]:
-    stmt = select(Norma.libro, Norma.parte, Norma.titulo, Norma.capitulo, Norma.seccion)\
+    stmt = select(Norma.libro, Norma.parte, Norma.titulo, Norma.capitulo, Norma.seccion, Norma.numero_articulo)\
            .where(Norma.codigo == codigo, Norma.activa == True)\
            .order_by(Norma.numero_articulo.asc())
     rows = db.execute(stmt).all()
     
     raiz = []
-    for libro, parte, titulo, capitulo, seccion in rows:
+    for libro, parte, titulo, capitulo, seccion, numero in rows:
         current = raiz
+        camino = []
         for tipo, valor in [("libro", libro), ("parte", parte), ("titulo", titulo), 
                             ("capitulo", capitulo), ("seccion", seccion)]:
             if valor:
-                nodo = _agregar_nodo(current, tipo, valor)
+                nodo = _agregar_nodo(current, tipo, valor, numero)
+                camino.append(nodo)
                 current = nodo.hijos
+                
+        for nodo in camino:
+            nodo.desde = min(nodo.desde, numero)
+            nodo.hasta = max(nodo.hasta, numero)
+            nodo.cantidad += 1
+            
+        if camino:
+            # No se vacía 'numeros' en nodos con hijos porque hay nodos (ej: servidumbres
+            # forzosas, arts. 260-261) que tienen artículos propios antes de sus subsecciones.
+            camino[-1].numeros.append(numero)
+            
     return raiz

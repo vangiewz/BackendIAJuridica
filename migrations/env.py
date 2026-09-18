@@ -23,6 +23,28 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
+# Objetos que autogenerate NO debe tocar nunca.
+#
+# `normas.busqueda` es un tsvector generado que vive solo en las migraciones y a proposito no
+# esta declarado en el modelo: SQLite no sabe compilar TSVECTOR y la suite offline crea las
+# tablas con Base.metadata.create_all. Autogenerate no lo ve del lado del modelo, concluye que
+# sobra y genera un DROP COLUMN. El 2026-09-18 eso llego a aplicarse contra la base y dejo la
+# busqueda full-text rota.
+EXCLUIDOS_DE_AUTOGENERATE = {
+    ("column", "normas", "busqueda"),
+    ("index", "normas", "ix_normas_busqueda"),
+}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    """Deja fuera de autogenerate lo que se gestiona a mano en SQL."""
+    tabla = getattr(object, "table", None)
+    nombre_tabla = tabla.name if tabla is not None else getattr(object, "name", None)
+    if (type_, nombre_tabla, name) in EXCLUIDOS_DE_AUTOGENERATE:
+        return False
+    return True
+
+
 def get_url():
     settings = get_settings()
     url = normalizar_url(settings.database_url)
@@ -34,6 +56,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -53,7 +76,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():
