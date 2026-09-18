@@ -11,3 +11,5 @@ pyjwt
 bcrypt
 alembic
 email-validator
+
+pypdf==6.19.0
