@@ -26,3 +26,10 @@ class SeveridadRiesgo(str, Enum):
     ALTA = "alta"
     MEDIA = "media"
     BAJA = "baja"
+
+class EstadoVigencia(str, Enum):
+    """Vigencia verificada de una norma. La ingesta carga SIN_VERIFICAR y alguien la confirma."""
+    VIGENTE = "vigente"
+    DEROGADO = "derogado"
+    MODIFICADO = "modificado"
+    SIN_VERIFICAR = "sin_verificar"
