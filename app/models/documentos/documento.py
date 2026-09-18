@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, ForeignKey, Enum as SAEnum
+from sqlalchemy import DateTime, ForeignKey, Enum as SAEnum, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.shared.base import Base
 from app.models.shared.enums import TipoDocumento, EstadoProceso
@@ -20,6 +21,12 @@ class Documento(Base):
         SAEnum(EstadoProceso, name="estadoproceso", values_callable=lambda e: [m.value for m in e]),
         default=EstadoProceso.PENDIENTE
     )
+    terminos_detectados: Mapped[list | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    version_diccionario: Mapped[str | None] = mapped_column(nullable=True)
+    motivo_fallo: Mapped[str | None] = mapped_column(nullable=True)
+    cantidad_caracteres: Mapped[int | None] = mapped_column(nullable=True)
     subido_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
