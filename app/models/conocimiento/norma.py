@@ -46,6 +46,11 @@ class Norma(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    # La columna `busqueda` (tsvector generado) vive SOLO en la migracion, no aca.
+    # SQLite no sabe compilar TSVECTOR y la suite offline crea las tablas con
+    # Base.metadata.create_all: declararla en el modelo rompe 13 tests que no tienen nada
+    # que ver con la busqueda. El service la referencia por nombre.
+
     __table_args__ = (
         UniqueConstraint("codigo", "numero_articulo", "version",
                          name="uq_normas_codigo_articulo_version"),
