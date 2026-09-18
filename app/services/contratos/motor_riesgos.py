@@ -8,11 +8,17 @@ from app.services.contratos.reglas_prestamo import REGLAS_PRESTAMO
 from app.services.documentos.extractor_entidades import extraer
 from app.services.shared.normalizacion import normalizar
 
+from app.services.documentos.segmentador_clausulas import Clausula
+from app.services.documentos.extractor_entidades import Hallazgo
+
 @dataclass(frozen=True)
 class Analisis:
     riesgos: tuple[Riesgo, ...]
     reglas_evaluadas: int
     tipo: TipoDocumento
+    clausulas: tuple[Clausula, ...]
+    hallazgos: tuple[Hallazgo, ...]
+    parrafo_partes: str | None
 
 def analizar(texto: str, tipo: TipoDocumento) -> Analisis:
     """Corre las reglas que aplican al tipo. Cada riesgo cita su articulo."""
@@ -51,5 +57,8 @@ def analizar(texto: str, tipo: TipoDocumento) -> Analisis:
     return Analisis(
         riesgos=tuple(riesgos),
         reglas_evaluadas=len(reglas),
-        tipo=tipo
+        tipo=tipo,
+        clausulas=extraccion.clausulas,
+        hallazgos=extraccion.hallazgos,
+        parrafo_partes=extraccion.parrafo_partes
     )

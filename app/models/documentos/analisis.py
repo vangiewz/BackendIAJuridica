@@ -16,6 +16,8 @@ class AnalisisDocumento(Base):
     fechas: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     montos: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
     observaciones: Mapped[str | None] = mapped_column(nullable=True)
+    hallazgos: Mapped[list] = mapped_column(JSON().with_variant(JSONB, "postgresql"), server_default="[]")
+    reglas_evaluadas: Mapped[int] = mapped_column(server_default="0")
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

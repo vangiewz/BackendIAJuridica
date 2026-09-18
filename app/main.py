@@ -6,6 +6,7 @@ from app.views.auth.sesion import router as auth_router
 from app.views.conocimiento.normativa import router as normativa_router
 from app.views.consultas.consultas import router as consultas_router
 from app.views.documentos.documentos import router as documentos_router
+from app.views.contratos.contratos import router as contratos_router
 
 def create_app() -> FastAPI:
     """Construye y configura la instancia principal de FastAPI."""
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(normativa_router, prefix=settings.api_prefix)
     app.include_router(consultas_router, prefix=settings.api_prefix)
     app.include_router(documentos_router, prefix=settings.api_prefix)
+    app.include_router(contratos_router, prefix=settings.api_prefix)
     return app
 
 app = create_app()
