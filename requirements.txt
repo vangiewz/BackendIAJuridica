@@ -13,3 +13,5 @@ alembic
 email-validator
 
 pypdf==6.19.0
+python-docx
+python-multipart
