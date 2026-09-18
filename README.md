@@ -25,3 +25,15 @@ Crear un archivo `.env` en la raíz de `Backend/` con las siguientes variables. 
 
 Para aplicar las migraciones y crear las tablas (como `usuarios`), ejecuta:
 `alembic upgrade head`
+
+## Comandos
+
+### Ingesta Normativa
+Para sincronizar los artículos del Código Civil a la base de datos (parsea, ingiere y genera un reporte de manera idempotente):
+```bash
+python -m scripts.ingesta_normativa --fuente codigo_civil
+```
+Usa el flag `--dry-run` para parsear y armar el reporte sin escribir en la base de datos:
+```bash
+python -m scripts.ingesta_normativa --fuente codigo_civil --dry-run
+```
