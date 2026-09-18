@@ -76,7 +76,11 @@ def _recolectar_bloques(lineas: list[str], perfil: PerfilFuente) -> list[Dict[st
     return bloques
 
 def _procesar_epigrafe(texto_bruto: str) -> Tuple[str | None, str]:
-    epigrafe_re = re.compile(r'^\s*\(?\s*([^)\n]{0,120}(?:\n[^)\n]{0,120})?)\s*\)\s*[\.\-]{0,2}')
+    # Hasta 3 continuaciones de linea: el epigrafe del art. 937 ocupa tres lineas y con una
+    # sola continuacion quedaba sin extraer, metido dentro del cuerpo con sus parentesis.
+    # Son 5 casos en el corpus (104, 581, 582, 937, 1238). No cruza al cuerpo del articulo
+    # porque [^)\n] se corta en el primer parentesis de cierre.
+    epigrafe_re = re.compile(r'^\s*\(?\s*([^)\n]{0,120}(?:\n[^)\n]{0,120}){0,3})\s*\)\s*[\.\-]{0,2}')
     m_epi = epigrafe_re.match(texto_bruto)
     if not m_epi:
         return None, texto_bruto
