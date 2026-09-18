@@ -1,0 +1,2 @@
+class ConsultaNoEncontradaError(Exception):
+    pass
