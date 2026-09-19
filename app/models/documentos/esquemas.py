@@ -26,3 +26,41 @@ class ItemDocumento(BaseModel):
 class DocumentosResponse(BaseModel):
     total: int
     items: list[ItemDocumento]
+
+class ComparacionRequest(BaseModel):
+    documento_a_id: UUID
+    documento_b_id: UUID
+
+class DiferenciaResponse(BaseModel):
+    tipo: str                    # 'agregado' | 'eliminado' | 'modificado'
+    ubicacion: str
+    texto_anterior: str | None
+    texto_nuevo: str | None
+    explicacion: str
+    clausula: int | None
+
+class ItemComparacion(BaseModel):
+    """Fila del historial de comparaciones: lo justo para volver a abrirla."""
+    id: UUID
+    documento_a_id: UUID
+    documento_b_id: UUID
+    nombre_a: str
+    nombre_b: str
+    estrategia: str
+    cantidad_cambios: int
+    creada_en: datetime
+
+class ComparacionesResponse(BaseModel):
+    total: int
+    items: list[ItemComparacion]
+
+class ComparacionResponse(BaseModel):
+    id: UUID
+    documento_a_id: UUID
+    documento_b_id: UUID
+    nombre_a: str
+    nombre_b: str
+    estrategia: str              # 'clausulas' | 'texto'
+    cantidad_cambios: int
+    diferencias: list[DiferenciaResponse]
+    creada_en: datetime

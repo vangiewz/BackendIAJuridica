@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.views.health.estado import router as health_router
 from app.views.auth.sesion import router as auth_router
 from app.views.conocimiento.normativa import router as normativa_router
+from app.views.conocimiento.ingesta import router as ingesta_router
 from app.views.consultas.consultas import router as consultas_router
 from app.views.documentos.documentos import router as documentos_router
 from app.views.contratos.contratos import router as contratos_router
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix=settings.api_prefix)
     app.include_router(auth_router, prefix=settings.api_prefix)
     app.include_router(normativa_router, prefix=settings.api_prefix)
+    app.include_router(ingesta_router, prefix=settings.api_prefix)
     app.include_router(consultas_router, prefix=settings.api_prefix)
     app.include_router(documentos_router, prefix=settings.api_prefix)
     app.include_router(contratos_router, prefix=settings.api_prefix)

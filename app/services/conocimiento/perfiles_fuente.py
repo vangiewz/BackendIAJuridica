@@ -23,3 +23,14 @@ CODIGO_CIVIL = PerfilFuente(
     inicio_articulo=re.compile(r'^ART[IÍ]CULO\s+(\d+)\s*[\.\-]', re.M),
     nivel=re.compile(r'^(LIBRO|PARTE|TITULO|CAPITULO|SECCION|SUBSECCION)\s+(\S+)\s*$')
 )
+
+# Registro de fuentes soportadas. Agregar el Codigo Procesal Civil o una ley
+# complementaria es agregar su PerfilFuente y una entrada aca: ni el controller
+# ni el endpoint necesitan cambiar.
+PERFILES: dict[str, PerfilFuente] = {
+    "codigo_civil": CODIGO_CIVIL,
+}
+
+def perfil_de(clave: str) -> PerfilFuente | None:
+    """Perfil de una fuente por su clave, o None si no esta soportada."""
+    return PERFILES.get(clave)

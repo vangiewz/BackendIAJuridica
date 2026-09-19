@@ -44,6 +44,27 @@ class ArticuloDetalle(BaseModel):
     fuente_url: str
     model_config = ConfigDict(from_attributes=True)
 
+class FuenteDisponible(BaseModel):
+    """Una fuente del registro de perfiles, para que el admin elija sin adivinar."""
+    clave: str
+    codigo: str
+    archivo: str
+    total_esperado: int
+    fuente_nombre: str
+    fuente_url: str
+
+class ReporteIngestaResponse(BaseModel):
+    """Las mismas metricas que produce ReporteIngesta, mas el origen del archivo."""
+    fuente: str
+    codigo: str
+    total_procesados: int
+    insertadas: int
+    actualizadas: int
+    sin_cambios: int
+    por_libro: dict[str, int]
+    por_area: dict[str, int]
+    origen: str            # 'subido' | 'incluido'
+
 class NodoIndice(BaseModel):
     tipo: str
     nombre: str

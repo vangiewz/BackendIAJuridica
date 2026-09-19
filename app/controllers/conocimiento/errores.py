@@ -3,3 +3,9 @@ class CorpusIncompletoError(Exception):
 
 class FuenteNoEncontradaError(Exception):
     """El archivo de la fuente no existe en data/normativa/."""
+
+class FuenteNoSoportadaError(Exception):
+    """La clave de fuente pedida no esta en el registro de perfiles."""
+
+class FuenteNoProcesableError(Exception):
+    """El archivo no se pudo leer como PDF o no tiene capa de texto."""

@@ -1,3 +1,4 @@
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +12,12 @@ from app.services.conocimiento.perfiles_fuente import PerfilFuente
 from app.services.conocimiento.parser_articulos import parsear, ArticuloParseado
 from app.services.conocimiento.extractor_pdf import extraer_texto
 from app.services.conocimiento.mapeo_areas import area_de
-from app.controllers.conocimiento.errores import CorpusIncompletoError, FuenteNoEncontradaError
+from app.controllers.conocimiento.errores import (
+    CorpusIncompletoError, FuenteNoEncontradaError, FuenteNoProcesableError
+)
+
+# Donde vive el corpus que viene con el repositorio.
+RUTA_DATOS = Path("data/normativa")
 
 @dataclass(frozen=True)
 class ReporteIngesta:
@@ -94,7 +100,40 @@ def ingerir_fuente(db: Session, perfil: PerfilFuente, ruta_datos: Path) -> Repor
 
     texto_bruto = extraer_texto(ruta_archivo, perfil.ruido)
     articulos = parsear(texto_bruto, perfil)
-    
+
     descargada_en = datetime.fromtimestamp(ruta_archivo.stat().st_mtime, tz=timezone.utc)
-    
+
+    return ingerir_articulos(db, articulos, perfil, descargada_en)
+
+
+def _texto_del_pdf_subido(perfil: PerfilFuente, contenido: bytes) -> str:
+    """
+    Texto del PDF que subio el administrador.
+
+    El archivo vive solo mientras se lo lee: la fuente de verdad del sistema es la
+    tabla `normas`, no el PDF, asi que no se guarda nada en disco.
+    """
+    with tempfile.TemporaryDirectory() as directorio:
+        ruta = Path(directorio) / Path(perfil.archivo).name
+        ruta.write_bytes(contenido)
+        try:
+            return extraer_texto(ruta, perfil.ruido)
+        except Exception as e:
+            raise FuenteNoProcesableError(
+                "El archivo no se pudo leer como PDF. Verificá que sea el documento original."
+            ) from e
+
+
+def ingerir_contenido(
+    db: Session, perfil: PerfilFuente, contenido: bytes, descargada_en: datetime
+) -> ReporteIngesta:
+    """Misma tuberia que ingerir_fuente, pero a partir de un PDF subido."""
+    texto_bruto = _texto_del_pdf_subido(perfil, contenido)
+    if not texto_bruto.strip():
+        raise FuenteNoProcesableError(
+            "El PDF no tiene capa de texto. Suele pasar con documentos escaneados: "
+            "subí el archivo original."
+        )
+
+    articulos = parsear(texto_bruto, perfil)
     return ingerir_articulos(db, articulos, perfil, descargada_en)
