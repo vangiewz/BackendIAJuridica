@@ -105,8 +105,10 @@ def test_post_analisis_arrendamiento_exito(auth_headers, documento_arrendamiento
     for r in data["riesgos"]:
         assert len(r["articulos"]) > 0
 
+    # Con la IA desactivada el motor de reglas responde igual: resumen y observaciones
+    # quedan vacíos en lugar de inventarse. Los riesgos de arriba no dependen de la IA.
     assert data["resumen"] is None
-    assert data["observaciones"] is None
+    assert data["observaciones"] == []
 
     # Verificar BD
     db = next(get_db())

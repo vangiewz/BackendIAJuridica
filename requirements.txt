@@ -5,6 +5,7 @@ pydantic-settings
 pytest
 httpx
 sqlalchemy
+pgvector==0.4.2
 psycopg[binary]
 
 pyjwt
@@ -15,3 +16,6 @@ email-validator
 pypdf==6.19.0
 python-docx
 python-multipart
+openpyxl
+python-pptx
+reportlab

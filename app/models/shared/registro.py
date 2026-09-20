@@ -12,6 +12,7 @@ from app.models.auth.usuario import Usuario
 from app.models.consultas.consulta import Consulta
 from app.models.consultas.fuente_legal import FuenteLegal
 from app.models.conocimiento.norma import Norma
+from app.models.conocimiento.embedding import NormaEmbedding
 from app.models.documentos.documento import Documento
 from app.models.documentos.analisis import AnalisisDocumento
 from app.models.documentos.comparacion import ComparacionDocumentos
@@ -24,6 +25,7 @@ __all__ = [
     "Consulta",
     "FuenteLegal",
     "Norma",
+    "NormaEmbedding",
     "Documento",
     "AnalisisDocumento",
     "ComparacionDocumentos",

@@ -8,6 +8,9 @@ from app.views.conocimiento.ingesta import router as ingesta_router
 from app.views.consultas.consultas import router as consultas_router
 from app.views.documentos.documentos import router as documentos_router
 from app.views.contratos.contratos import router as contratos_router
+from app.views.generacion.documentos import router as generacion_router
+from app.views.reportes.reportes import router as reportes_router
+from app.views.ayuda.ayuda import router as ayuda_router
 
 def create_app() -> FastAPI:
     """Construye y configura la instancia principal de FastAPI."""
@@ -32,6 +35,9 @@ def create_app() -> FastAPI:
     app.include_router(consultas_router, prefix=settings.api_prefix)
     app.include_router(documentos_router, prefix=settings.api_prefix)
     app.include_router(contratos_router, prefix=settings.api_prefix)
+    app.include_router(generacion_router, prefix=settings.api_prefix)
+    app.include_router(reportes_router, prefix=settings.api_prefix)
+    app.include_router(ayuda_router, prefix=settings.api_prefix)
     return app
 
 app = create_app()

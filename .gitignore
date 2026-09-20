@@ -20,6 +20,10 @@ data/raw/
 *.pkl
 *.db
 *.sqlite3
+ollama/
+models/
+node_modules/
+.ENV
 
 # ---- Varios ----
 *.log
@@ -32,3 +36,10 @@ data/raw/
 .cline/
 AGENTS.md
 CLAUDE.md
+
+# ---- Artefactos locales de IA/benchmarks (se regeneran con scripts/) ----
+*.gguf
+debug_rechazos_juridicos/
+scratchpad/
+docs/benchmarks/
+docs/evaluacion_*.json

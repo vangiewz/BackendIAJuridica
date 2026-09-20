@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, desc, Row, literal_column
+from sqlalchemy import select, func, desc, Row, literal_column, literal, union_all
+from types import SimpleNamespace
 from app.models.conocimiento.norma import Norma
 
 # `busqueda` se declara en la migracion, no en el modelo (ver el comentario en norma.py).
@@ -54,3 +55,36 @@ def buscar(db: Session, consulta: str, area: str | None = None, limite: int = 20
         .offset(desplazamiento)
     )
     return total, db.execute(stmt).all()
+
+
+def buscar_candidatos(db: Session, consulta: str, area=None, limite=20):
+    """Mismo ranking para RAG, sin COUNT ni ts_headline que RRF no utiliza."""
+    query_ts = _construir_tsquery(db, consulta)
+    if query_ts is None:
+        return []
+    rank = func.ts_rank_cd(BUSQUEDA, query_ts).label("relevancia")
+    stmt = select(Norma, rank).where(Norma.activa.is_(True), BUSQUEDA.op("@@")(query_ts))
+    if area:
+        stmt = stmt.where(Norma.area_juridica == area)
+    return db.execute(stmt.order_by(desc("relevancia"), Norma.numero_articulo.asc()).limit(limite)).all()
+
+
+def buscar_candidatos_por_conceptos(db: Session, consultas: dict[str, str], area=None, limite=20):
+    """Mismo índice de texto completo; una consulta SQL para todos los subproblemas."""
+    sentencias = []
+    for clave, consulta in consultas.items():
+        query = func.websearch_to_tsquery('es_unaccent', ' OR '.join(consulta.split()))
+        rank = func.ts_rank_cd(BUSQUEDA, query).label('relevancia')
+        stmt = select(Norma.id.label('norma_id'), literal(clave).label('concepto'), rank).where(
+            Norma.activa.is_(True), BUSQUEDA.op('@@')(query))
+        if area:
+            stmt = stmt.where(Norma.area_juridica == area)
+        sentencias.append(stmt.order_by(desc('relevancia'), Norma.numero_articulo).limit(limite))
+    if not sentencias:
+        return {}
+    filas = db.execute(union_all(*sentencias)).all()
+    normas = {n.id: n for n in db.scalars(select(Norma).where(Norma.id.in_({f.norma_id for f in filas})))}
+    resultado = {clave: [] for clave in consultas}
+    for fila in filas:
+        resultado[fila.concepto].append(SimpleNamespace(Norma=normas[fila.norma_id], relevancia=fila.relevancia))
+    return resultado

@@ -1,15 +1,53 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencias import usuario_actual
 from app.models.auth.usuario import Usuario
 from app.models.consultas.esquemas import ConsultaRequest, ConsultaResponse, HistorialResponse
-from app.controllers.consultas.resolver_consulta_controller import resolver_consulta
+from app.controllers.consultas.resolver_consulta_controller import (
+    documento_del_usuario, resolver_consulta,
+)
 from app.controllers.consultas.historial_controller import obtener_historial, obtener_consulta
 from app.controllers.consultas.errores import ConsultaNoEncontradaError
 
 router = APIRouter(prefix="/consultas", tags=["Consultas Juridicas"])
+
+
+def _procesar(consulta_id, usuario_id, request):
+    from app.core.database import obtener_engine
+    from app.models.consultas.consulta import Consulta
+    from app.models.shared.enums import EstadoProceso
+    with Session(obtener_engine()) as db:
+        try:
+            consulta = db.get(Consulta, consulta_id)
+            resolver_consulta(db, request, usuario_id, consulta)
+        except Exception:
+            db.rollback()
+            consulta = db.get(Consulta, consulta_id)
+            if consulta:
+                consulta.estado = EstadoProceso.FALLIDO
+                consulta.etapa_ia = "No se pudo completar"
+                consulta.ia_error = "No se pudo completar la consulta. Puede intentarlo nuevamente."
+                db.commit()
+
+
+@router.post("/iniciar", status_code=status.HTTP_202_ACCEPTED)
+def iniciar_consulta(request: ConsultaRequest, tareas: BackgroundTasks,
+                     db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_actual)):
+    from app.models.consultas.consulta import Consulta
+    from app.models.shared.enums import EstadoProceso
+    # El documento se valida contra el usuario del token antes de dejarlo anotado:
+    # un id ajeno no queda ni siquiera registrado en la consulta.
+    documento = documento_del_usuario(db, request.documento_id, usuario.id)
+    consulta = Consulta(usuario_id=usuario.id, texto=request.texto, estado=EstadoProceso.PROCESANDO,
+                        documento_id=documento.id if documento else None,
+                        terminos_detectados=[], etapa_ia="Preparando consulta...")
+    db.add(consulta)
+    db.commit()
+    db.refresh(consulta)
+    tareas.add_task(_procesar, consulta.id, usuario.id, request)
+    return {"id": consulta.id, "estado": consulta.estado}
 
 @router.post("", response_model=ConsultaResponse, status_code=status.HTTP_201_CREATED)
 def crear_consulta(

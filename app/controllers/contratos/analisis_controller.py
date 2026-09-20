@@ -10,6 +10,10 @@ from app.models.shared.enums import EstadoProceso
 from app.controllers.contratos.errores import DocumentoNoAnalizableError
 from app.controllers.documentos.errores import DocumentoNoEncontradoError
 from app.services.contratos.motor_riesgos import analizar, Analisis
+from app.core.config import get_settings
+from app.models.ia.esquemas import AnalisisContratoIA
+from app.services.ia.contratos import analizar_contrato
+from pydantic import ValidationError
 from app.models.contratos.esquemas import (
     AnalisisResponse,
     ClausulaResponse,
@@ -44,7 +48,36 @@ def _a_riesgos(riesgos_models: list[RiesgoContractual]) -> list[RiesgoResponse]:
         ) for r in riesgos_models
     ]
 
-def _build_response(analisis_doc: AnalisisDocumento, documento: Documento, riesgos_models: list[RiesgoContractual]) -> AnalisisResponse:
+def _generar_ia(db: Session, doc: Documento, analisis_doc: AnalisisDocumento,
+                riesgos_models: list[RiesgoContractual]) -> AnalisisContratoIA:
+    """HU-10: completa resumen y observaciones. Si la IA falla, el análisis por reglas queda intacto."""
+    guardado = _ia_persistida(analisis_doc)
+    if guardado.disponible or not get_settings().ia_enabled:
+        return guardado
+    resultado = analizar_contrato(db, doc.tipo_documento, doc.texto_extraido,
+                                  list(analisis_doc.obligaciones or []),
+                                  list(analisis_doc.hallazgos or []), riesgos_models)
+    if resultado.disponible:
+        analisis_doc.resumen = resultado.resumen
+        # La columna existente guarda el detalle serializado; el esquema lo publica como lista.
+        analisis_doc.observaciones = resultado.model_dump_json()
+        db.commit()
+    return resultado
+
+
+def _ia_persistida(analisis_doc: AnalisisDocumento) -> AnalisisContratoIA:
+    if not analisis_doc.observaciones:
+        return AnalisisContratoIA(disponible=False)
+    try:
+        return AnalisisContratoIA.model_validate_json(analisis_doc.observaciones)
+    except ValidationError:
+        return AnalisisContratoIA(disponible=False)
+
+
+def _build_response(analisis_doc: AnalisisDocumento, documento: Documento,
+                    riesgos_models: list[RiesgoContractual],
+                    ia: AnalisisContratoIA | None = None) -> AnalisisResponse:
+    ia = ia or _ia_persistida(analisis_doc)
     clausulas_resp = [
         ClausulaResponse(
             orden=c["orden"],
@@ -64,8 +97,10 @@ def _build_response(analisis_doc: AnalisisDocumento, documento: Documento, riesg
         parrafo_partes=(analisis_doc.partes or {}).get("parrafo"),
         riesgos=_a_riesgos(riesgos_models),
         reglas_evaluadas=analisis_doc.reglas_evaluadas,
-        resumen=None,
-        observaciones=None,
+        resumen=analisis_doc.resumen,
+        observaciones=ia.observaciones,
+        fuentes_ia=ia.fuentes,
+        ia_error=ia.motivo,
         creado_en=analisis_doc.creado_en
     )
 
@@ -118,8 +153,9 @@ def analizar_documento(db: Session, documento_id: UUID, usuario_id: UUID) -> Ana
 
     analisis_existente = db.scalar(select(AnalisisDocumento).where(AnalisisDocumento.documento_id == documento_id))
     if analisis_existente:
-        riesgos_existentes = db.scalars(select(RiesgoContractual).where(RiesgoContractual.analisis_id == analisis_existente.id)).all()
-        return _build_response(analisis_existente, doc, list(riesgos_existentes))
+        riesgos_existentes = list(db.scalars(select(RiesgoContractual).where(RiesgoContractual.analisis_id == analisis_existente.id)).all())
+        ia = _generar_ia(db, doc, analisis_existente, riesgos_existentes)
+        return _build_response(analisis_existente, doc, riesgos_existentes, ia)
 
     analisis_motor = analizar(doc.texto_extraido, doc.tipo_documento)
     analisis_doc = _persistir_analisis(db, doc, analisis_motor)
@@ -130,7 +166,8 @@ def analizar_documento(db: Session, documento_id: UUID, usuario_id: UUID) -> Ana
     for rm in riesgos_models:
         db.refresh(rm)
 
-    return _build_response(analisis_doc, doc, riesgos_models)
+    ia = _generar_ia(db, doc, analisis_doc, riesgos_models)
+    return _build_response(analisis_doc, doc, riesgos_models, ia)
 
 def obtener_analisis(db: Session, documento_id: UUID, usuario_id: UUID) -> AnalisisResponse:
     doc = db.scalar(select(Documento).where(Documento.id == documento_id, Documento.usuario_id == usuario_id))

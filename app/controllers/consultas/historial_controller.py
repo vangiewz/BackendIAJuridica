@@ -5,11 +5,13 @@ from sqlalchemy import select, func, desc
 from app.models.consultas.consulta import Consulta
 from app.models.consultas.fuente_legal import FuenteLegal
 from app.models.conocimiento.norma import Norma
+from app.models.documentos.documento import Documento
 from app.models.consultas.esquemas import (
     HistorialResponse, ItemHistorial, ConsultaResponse, FuenteLegalResponse
 )
 from app.models.shared.enums import EstadoVigencia
 from app.controllers.consultas.errores import ConsultaNoEncontradaError
+from app.models.ia.esquemas import RespuestaJuridicaIA
 
 def obtener_historial(db: Session, usuario_id: UUID, limite: int = 50, desplazamiento: int = 0) -> HistorialResponse:
     subq = (
@@ -21,8 +23,10 @@ def obtener_historial(db: Session, usuario_id: UUID, limite: int = 50, desplazam
     total = db.scalar(select(func.count()).select_from(Consulta).where(Consulta.usuario_id == usuario_id)) or 0
 
     stmt = (
-        select(Consulta, func.coalesce(subq.c.cantidad, 0).label("cantidad_fuentes"))
+        select(Consulta, func.coalesce(subq.c.cantidad, 0).label("cantidad_fuentes"),
+               Documento.nombre_archivo.label("documento_nombre"))
         .outerjoin(subq, Consulta.id == subq.c.consulta_id)
+        .outerjoin(Documento, Consulta.documento_id == Documento.id)
         .where(Consulta.usuario_id == usuario_id)
         .order_by(desc(Consulta.creada_en))
         .limit(limite)
@@ -37,6 +41,7 @@ def obtener_historial(db: Session, usuario_id: UUID, limite: int = 50, desplazam
             texto=row.Consulta.texto,
             area_juridica=row.Consulta.area_juridica,
             cantidad_fuentes=row.cantidad_fuentes,
+            documento_nombre=row.documento_nombre,
             creada_en=row.Consulta.creada_en
         )
         for row in resultados
@@ -57,10 +62,14 @@ def obtener_consulta(db: Session, consulta_id: UUID, usuario_id: UUID) -> Consul
     ).all()
 
     fuentes_responses = []
+    respuesta = RespuestaJuridicaIA.model_validate_json(consulta.respuesta) if consulta.respuesta else None
     for f, norma in fuentes_db:
         # Nota: La consulta requiere datos de norma que podrian no existir si norma_id es nulo,
         # pero según la spec fuente_legal se crea siempre con norma.
         fuentes_responses.append(FuenteLegalResponse(
+            norma_id=f.norma_id,
+            version=norma.version if norma else None,
+            utilizada=bool(respuesta and f.norma_id in respuesta.articulos_utilizados),
             articulo=f.articulo,
             numero_articulo=norma.numero_articulo if norma else 0,
             codigo=norma.codigo if norma else "",
@@ -72,14 +81,23 @@ def obtener_consulta(db: Session, consulta_id: UUID, usuario_id: UUID) -> Consul
             fuente_url=norma.fuente_url if norma else ""
         ))
 
+    documento = (db.get(Documento, consulta.documento_id)
+                 if consulta.documento_id else None)
+
     return ConsultaResponse(
         id=consulta.id,
         texto=consulta.texto,
+        documento_id=consulta.documento_id,
+        # El documento se relee del modelo, no de la respuesta guardada: si lo renombraron
+        # o lo borraron, el historial muestra el estado actual y no una copia vieja.
+        documento_nombre=documento.nombre_archivo if documento else None,
         area_juridica=consulta.area_juridica,
         terminos_detectados=consulta.terminos_detectados,
         puntajes_por_area={}, # Historico no guarda puntajes_por_area, devolver vacio o re-calcular?
         fuentes=fuentes_responses,
-        respuesta=consulta.respuesta,
+        respuesta=respuesta,
+        etapa_ia=consulta.etapa_ia,
+        ia_error=consulta.ia_error,
         estado=consulta.estado,
         creada_en=consulta.creada_en
     )
