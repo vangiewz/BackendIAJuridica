@@ -43,14 +43,44 @@ def _evidencia(datos: dict, fuentes, plantilla, instruccion=None, base=None) -> 
     return ' '.join(partes)
 
 
+ABRE_ORACION = ".:;!?¿¡)-–—•\"«(*"
+SIGUE_MAYUSCULA = re.compile(r"[ \t]+[A-ZÁÉÍÓÚÑ]")
+
+
+def _nombres_a_revisar(texto: str) -> list[str]:
+    """Las palabras con mayúscula que podrían ser un nombre propio.
+
+    Una palabra con mayúscula al ABRIR una oración («Además», «Cada», «Asimismo») es una palabra
+    común: la mayúscula la pone la gramática, no un nombre. Contarla como nombre rechazaba borradores
+    correctos por una sola palabra, y el usuario, que no había escrito nada mal, no tenía qué corregir.
+    Sí se revisa una palabra que abre oración cuando le sigue otra con mayúscula («Pedro Suárez…»), y
+    todas las que aparecen a mitad de oración («…a Carlos Fernández…»).
+    """
+    dudosas = []
+    for m in TOKEN_PROPIO.finditer(texto):
+        antes = texto[:m.start()]
+        previo = antes.rstrip()
+        abre_oracion = not previo or previo[-1] in ABRE_ORACION or "\n" in antes[len(previo):]
+        if abre_oracion and not SIGUE_MAYUSCULA.match(texto, m.end()):
+            continue
+        dudosas.append(m.group())
+    return dudosas
+
+
 def verificar_sin_datos_inventados(texto: str, evidencia: str) -> None:
     """Un nombre propio o una cifra que no venga del usuario ni de la norma es invención."""
     referencia = sin_acentos(evidencia)
-    for token in TOKEN_PROPIO.findall(texto):
+    rechazadas = []
+    for token in _nombres_a_revisar(texto):
         plano = sin_acentos(token)
         if plano in VOCABULARIO_FIJO or plano in referencia:
             continue
-        raise RespuestaInvalida("dato_no_proporcionado")
+        if token not in rechazadas:
+            rechazadas.append(token)
+    if rechazadas:
+        # El detalle dice QUÉ palabras dispararon el rechazo: se usa para corregir el reintento y
+        # para explicarle al usuario qué pasó.
+        raise RespuestaInvalida("dato_no_proporcionado", detalle=", ".join(rechazadas))
 
 
 def verificar_marcadores(texto: str, plantilla) -> None:
@@ -128,7 +158,9 @@ def generar_borrador(db: Session, tipo, datos: dict, instruccion: str | None = N
         return BorradorIA(disponible=False, campos_faltantes=pendientes,
                           motivo="Los datos entregados exceden el tamaño admitido.")
     evidencia = _evidencia(datos, usadas, plantilla, instruccion, base)
+    ultimo_fallo: dict = {}
     for intento in range(2):
+        donde = None
         attempt_started = perf_counter()
         if intento:
             sumar("retry_count", 1)
@@ -136,10 +168,12 @@ def generar_borrador(db: Session, tipo, datos: dict, instruccion: str | None = N
             generado = client.generar(messages, BorradorModelo, intentos=1)
             with medir("citation_validation"):
                 for clausula in generado.clausulas:
+                    donde = clausula.titulo
                     verificar_prosa(clausula.texto, usadas, evidencia)
                     verificar_sin_datos_inventados(clausula.texto, evidencia)
                     verificar_marcadores(clausula.texto, plantilla)
             finales = dict(datos)
+            donde = "datos actualizados"
             for campo in generado.datos_actualizados:
                 # Solo campos de la plantilla y solo valores que ya estaban en lo aportado.
                 if any(c.clave == campo.clave for c in plantilla.campos) and campo.valor.strip():
@@ -156,13 +190,20 @@ def generar_borrador(db: Session, tipo, datos: dict, instruccion: str | None = N
         except RespuestaInvalida as exc:
             rechazo(exc.motivo)
             traza["validacion_motivo"] = exc.motivo
+            ultimo_fallo = {"motivo": exc.motivo, "detalle": exc.detalle, "clausula": donde}
+            # Se le dice al modelo QUÉ palabra o cifra concreta se rechazó: con solo la regla general
+            # repetía el mismo error.
+            concreto = (f" Lo que se rechazó fue: {exc.detalle}. No lo escribas."
+                        if exc.detalle and exc.motivo in ("dato_no_proporcionado", "cifra_fuera_de_fuentes") else "")
             messages = [messages[0], messages[1], {"role": "user", "content":
                 "Corrección del sistema: " + CORRECCIONES.get(exc.motivo, CORRECCIONES["no_especificado"]) +
-                " Reescribe todas las cláusulas cumpliendo esa regla y conserva el resto igual."}]
+                concreto + " Reescribe todas las cláusulas cumpliendo esa regla y conserva el resto igual."}]
         except IAError as exc:
             return BorradorIA(disponible=False, motivo=str(exc), campos_faltantes=pendientes)
         finally:
             if intento:
                 sumar("retry_ms", (perf_counter()-attempt_started)*1000)
     return BorradorIA(disponible=False, campos_faltantes=pendientes, trazabilidad=traza,
-        motivo="El servicio local de IA devolvió una respuesta que no pudo validarse.")
+        motivo="El servicio local de IA devolvió una respuesta que no pudo validarse.",
+        motivo_codigo=ultimo_fallo.get("motivo"), detalle_rechazo=ultimo_fallo.get("detalle") or None,
+        clausula_rechazada=ultimo_fallo.get("clausula"))

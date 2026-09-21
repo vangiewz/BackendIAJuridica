@@ -11,13 +11,18 @@ from app.models.generacion.esquemas import (
     InterpretacionResponse, PlantillaResponse, RevisionRequest, VersionResumen,
 )
 from app.controllers.generacion.documentos_controller import (
-    DocumentoGeneradoNoEncontradoError, GeneracionNoDisponibleError, TipoFueraDeAlcanceError,
+    DatosInvalidosError, DocumentoGeneradoNoEncontradoError, GeneracionNoDisponibleError, TipoFueraDeAlcanceError,
     exportar, generar, interpretar_pedido, listar, listar_plantillas, obtener, revisar,
     versiones,
 )
 from app.services.ia.interpretacion_documento import InterpretacionNoDisponibleError
 
 router = APIRouter(prefix="/documentos-generados", tags=["generacion"])
+
+
+def _detalle_de(exc: DatosInvalidosError) -> dict:
+    """El error con estructura: el mensaje y los campos que el usuario tiene que corregir."""
+    return {"mensaje": str(exc), "campos": [c.model_dump() for c in exc.campos]}
 
 
 @router.get("/plantillas", response_model=list[PlantillaResponse])
@@ -45,6 +50,8 @@ def endpoint_generar(request: GeneracionRequest, db: Session = Depends(get_db),
                      usuario: Usuario = Depends(usuario_actual)):
     try:
         return generar(db, usuario.id, request.tipo_documento, request.datos)
+    except DatosInvalidosError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_detalle_de(exc))
     except TipoFueraDeAlcanceError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except GeneracionNoDisponibleError as exc:
@@ -98,6 +105,8 @@ def endpoint_revisar(id: UUID, request: RevisionRequest, db: Session = Depends(g
     """Crea una versión nueva; la anterior se conserva."""
     try:
         return revisar(db, id, usuario.id, request.instruccion, request.datos, request.contenido)
+    except DatosInvalidosError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_detalle_de(exc))
     except DocumentoGeneradoNoEncontradoError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:

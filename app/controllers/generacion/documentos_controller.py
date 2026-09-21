@@ -8,16 +8,28 @@ from app.core.config import get_settings
 from app.models.generacion.documento_generado import DocumentoGenerado
 from app.models.generacion.esquemas import (
     CampoPlantilla, DocumentoGeneradoResponse, InterpretacionResponse, PlantillaResponse,
-    VersionResumen,
+    ProblemaCampo, VersionResumen,
 )
 from app.models.ia.esquemas import BorradorIA
-from app.services.generacion import exportadores, plantillas
+from app.services.generacion import exportadores, plantillas, revision_datos
 from app.services.ia.generacion import generar_borrador
 from app.services.ia.interpretacion_documento import interpretar
 
 
 class GeneracionNoDisponibleError(Exception):
     """La IA local no pudo producir un borrador verificable."""
+
+
+class DatosInvalidosError(Exception):
+    """Hay campos que sin duda no sirven: se dice cuáles y cómo escribirlos, sin gastar una llamada a la IA."""
+
+    def __init__(self, mensaje: str, campos: list[ProblemaCampo]):
+        super().__init__(mensaje)
+        self.campos = campos
+
+
+class BorradorNoValidadoError(DatosInvalidosError):
+    """La IA respondió, pero su borrador no pasó las reglas de seguridad (no inventar datos)."""
 
 
 class DocumentoGeneradoNoEncontradoError(Exception):
@@ -37,15 +49,61 @@ def interpretar_pedido(texto: str, tipo=None, datos: dict | None = None,
     """
     if not get_settings().ia_enabled:
         raise GeneracionNoDisponibleError("La función de IA está desactivada.")
-    return interpretar(texto, tipo, datos, client)
+    respuesta = interpretar(texto, tipo, datos, client)
+    if respuesta.tipo_documento:
+        plantilla = plantillas.obtener(respuesta.tipo_documento)
+        respuesta.problemas = _problemas(revision_datos.revisar_datos(plantilla, respuesta.datos))
+    return respuesta
 
 
 def listar_plantillas() -> list[PlantillaResponse]:
     return [PlantillaResponse(tipo_documento=p.tipo, titulo=p.titulo,
                 campos=[CampoPlantilla(clave=c.clave, etiqueta=c.etiqueta,
-                                       obligatorio=c.obligatorio) for c in p.campos],
+                                       obligatorio=c.obligatorio, ejemplo=c.ejemplo) for c in p.campos],
                 clausulas=list(p.clausulas))
             for p in plantillas.PLANTILLAS.values()]
+
+
+def _problemas(lista) -> list[ProblemaCampo]:
+    return [ProblemaCampo(clave=p.clave, etiqueta=p.etiqueta, mensaje=p.mensaje, ejemplo=p.ejemplo,
+                          nivel=p.nivel) for p in lista]
+
+
+def _exigir_datos_utiles(plantilla, datos: dict) -> None:
+    """Antes de gastar minutos de IA: si hay campos que sin duda no sirven, se dicen ya."""
+    malos = revision_datos.errores(revision_datos.revisar_datos(plantilla, datos))
+    if malos:
+        nombres = ", ".join(f"«{p.etiqueta}»" for p in malos)
+        raise DatosInvalidosError(
+            f"Corregí {'este campo' if len(malos) == 1 else 'estos campos'} antes de generar: {nombres}.",
+            _problemas(malos))
+
+
+def _mensaje_de_rechazo(borrador: BorradorIA) -> str:
+    """Qué pasó cuando la IA respondió pero su borrador no se pudo validar, en palabras del usuario."""
+    donde = f" en la cláusula «{borrador.clausula_rechazada}»" if borrador.clausula_rechazada else ""
+    if borrador.motivo_codigo == "dato_no_proporcionado" and borrador.detalle_rechazo:
+        return (f"La IA escribió{donde} algo que no está en tus datos ({borrador.detalle_rechazo}) "
+                "y por eso no se generó el borrador: el sistema no permite inventar información. "
+                "Probá de nuevo; si se repite, revisá los campos marcados o escribilos más completos.")
+    if borrador.motivo_codigo == "cifra_fuera_de_fuentes" and borrador.detalle_rechazo:
+        return (f"La IA escribió{donde} una cifra que no está en tus datos ({borrador.detalle_rechazo}) "
+                "y por eso no se generó el borrador. Revisá que los montos, plazos e intereses estén "
+                "escritos completos, con números, y probá de nuevo.")
+    if borrador.motivo_codigo == "campo_inexistente":
+        return ("La IA inventó un dato pendiente que el formulario no tiene y por eso no se generó el "
+                "borrador. Probá de nuevo.")
+    return ("La IA no logró redactar un borrador que cumpla las reglas de seguridad (no inventar datos) y "
+            "por eso no se generó. Probá de nuevo; si se repite, revisá que los campos estén completos.")
+
+
+def _fallar(borrador: BorradorIA, plantilla, datos: dict) -> None:
+    """Convierte un borrador no disponible en el error que corresponde."""
+    if not borrador.motivo_codigo:
+        raise GeneracionNoDisponibleError(borrador.motivo)
+    # Los campos dudosos (avisos) son los que hay que mirar primero.
+    dudosos = revision_datos.revisar_datos(plantilla, datos)
+    raise BorradorNoValidadoError(_mensaje_de_rechazo(borrador), _problemas(dudosos))
 
 
 def _respuesta(fila: DocumentoGenerado, borrador: BorradorIA | None = None):
@@ -75,9 +133,11 @@ def generar(db: Session, usuario_id: UUID, tipo, datos: dict) -> DocumentoGenera
         raise TipoFueraDeAlcanceError(str(exc)) from None
     if not get_settings().ia_enabled:
         raise GeneracionNoDisponibleError("La función de IA está desactivada.")
+    plantilla = plantillas.obtener(tipo)
+    _exigir_datos_utiles(plantilla, datos)
     borrador = generar_borrador(db, tipo, datos)
     if not borrador.disponible:
-        raise GeneracionNoDisponibleError(borrador.motivo)
+        _fallar(borrador, plantilla, datos)
     return _respuesta(_guardar(db, usuario_id, tipo, borrador.contenido), borrador)
 
 
@@ -158,6 +218,6 @@ def revisar(db: Session, documento_id: UUID, usuario_id: UUID, instruccion: str 
     combinados = {**plantillas.datos_desde_contenido(plantilla, padre.contenido), **(datos or {})}
     borrador = generar_borrador(db, padre.tipo_documento, combinados, instruccion, padre.contenido)
     if not borrador.disponible:
-        raise GeneracionNoDisponibleError(borrador.motivo)
+        _fallar(borrador, plantilla, combinados)
     return _respuesta(_guardar(db, usuario_id, padre.tipo_documento, borrador.contenido, padre),
                       borrador)

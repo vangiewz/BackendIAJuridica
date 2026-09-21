@@ -47,6 +47,16 @@ class CampoPendiente(BaseModel):
     obligatorio: bool
 
 
+class ProblemaCampo(BaseModel):
+    """Un campo del formulario que el usuario debe revisar, y por qué."""
+    clave: str
+    etiqueta: str
+    mensaje: str
+    ejemplo: str = ""
+    # error: no sirve y hay que corregirlo para generar. aviso: probablemente dé problemas.
+    nivel: Literal["error", "aviso"] = "error"
+
+
 class InterpretacionResponse(BaseModel):
     tipo_documento: TipoDocumento | None = None
     # El formulario ya combinado: lo que había más lo detectado que no genera conflicto.
@@ -60,6 +70,9 @@ class InterpretacionResponse(BaseModel):
     # Cuando hace falta que el usuario elija el tipo antes de seguir.
     requiere_tipo: bool = False
     mensaje: str = ""
+    # Campos que quedaron con algo que no sirve («hoy» como fecha, una sigla como lugar): se avisan
+    # apenas se interpreta, antes de intentar generar.
+    problemas: list[ProblemaCampo] = Field(default_factory=list)
 
 
 class GeneracionRequest(BaseModel):
@@ -78,6 +91,8 @@ class CampoPlantilla(BaseModel):
     clave: str
     etiqueta: str
     obligatorio: bool
+    # Cómo se escribe este dato: la pantalla lo muestra en gris dentro del campo vacío.
+    ejemplo: str = ""
 
 
 class PlantillaResponse(BaseModel):
