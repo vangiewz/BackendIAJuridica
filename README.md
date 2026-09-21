@@ -134,6 +134,45 @@ acepta `OLLAMA_URL` de loopback y es el unico que habla con el.
 ## Docker
 Ejecutar: `docker compose up --build`
 
+## Despliegue en Azure
+
+La API publicada corre en **Azure App Service for Containers** (Linux, plan B1, region
+`eastus`), con la imagen guardada en Azure Container Registry.
+
+| Recurso | Nombre |
+|---|---|
+| Grupo de recursos | `rg-ia-juridica-eus` |
+| Registro | `acriajuridica.azurecr.io` |
+| Plan | `plan-ia-juridica` (Linux B1) |
+| Sitio | `ia-juridica-api` |
+| URL | `https://ia-juridica-api.azurewebsites.net` |
+
+Para publicar una version nueva, con el repositorio en el commit que se quiere desplegar:
+
+```bash
+TAG=$(git rev-parse --short HEAD)
+az acr build --registry acriajuridica --image ia-juridica-api:$TAG --platform linux/amd64 .
+az webapp config container set -g rg-ia-juridica-eus -n ia-juridica-api \
+  --container-image-name acriajuridica.azurecr.io/ia-juridica-api:$TAG
+az webapp restart -g rg-ia-juridica-eus -n ia-juridica-api
+curl https://ia-juridica-api.azurewebsites.net/api/v1/health
+```
+
+El nombre de imagen ya incluye el registro: no pasarle ademas `--container-registry-url`, o
+Azure duplica el host y el pull falla con `ImagePullUnauthorizedFailure`.
+
+En la nube no hay Ollama, asi que el sitio corre con **`IA_ENABLED=false`** y las consultas
+usan el respaldo lexico sobre la normativa. Las variables de entorno no viven en un `.env`
+sino en las *app settings* del sitio:
+
+```bash
+az webapp config appsettings list -g rg-ia-juridica-eus -n ia-juridica-api --query "[].name" -o tsv
+az webapp config appsettings set -g rg-ia-juridica-eus -n ia-juridica-api --settings CORS_ORIGINS="..."
+```
+
+Ademas de las de la tabla de abajo, el sitio necesita `WEBSITES_PORT=8000` para que Azure sepa
+a que puerto hablarle.
+
 ## Variables de entorno
 
 Ver `.env.example` (cada variable esta comentada). Las principales:
