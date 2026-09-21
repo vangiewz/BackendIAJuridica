@@ -21,7 +21,7 @@ data/raw/
 *.db
 *.sqlite3
 ollama/
-models/
+/models/
 node_modules/
 .ENV
 
