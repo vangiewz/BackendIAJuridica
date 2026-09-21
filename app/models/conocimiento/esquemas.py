@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from app.models.shared.enums import AreaJuridica, EstadoVigencia
@@ -8,6 +9,37 @@ class Ubicacion(BaseModel):
     titulo: str | None = None
     capitulo: str | None = None
     seccion: str | None = None
+
+class ArticuloCorpus(BaseModel):
+    """Un articulo listo para guardarse en el cliente. Sin `anterior`/`siguiente`:
+    teniendo el corpus entero, el cliente los deduce y el servidor se ahorra un N+1."""
+    id: UUID
+    codigo: str
+    articulo: str
+    numero_articulo: int
+    epigrafe: str | None
+    texto: str
+    area_juridica: AreaJuridica | None
+    ubicacion: Ubicacion
+    estado_vigencia: EstadoVigencia
+    nota_vigencia: str | None
+    fuente_nombre: str
+    fuente_url: str
+    version: int
+    model_config = ConfigDict(from_attributes=True)
+
+class VersionCorpus(BaseModel):
+    codigo: str
+    version: str          # huella opaca; si cambia, el cliente vuelve a bajar todo
+    cantidad: int         # articulos activos
+    generada_en: datetime
+
+class PaginaCorpus(BaseModel):
+    codigo: str
+    version: str          # la misma huella; si no coincide con la que tiene, el cliente reinicia
+    total: int
+    desde: int            # desplazamiento pedido
+    articulos: list[ArticuloCorpus]
 
 class NormaResumen(BaseModel):
     id: UUID

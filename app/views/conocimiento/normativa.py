@@ -10,10 +10,13 @@ from app.models.shared.enums import AreaJuridica
 from app.services.conocimiento.busqueda_hibrida import buscar_hibrida
 from app.services.ia.fuentes import fuente_de_norma
 from app.core.database import get_db
-from app.models.conocimiento.esquemas import ResultadoBusqueda, ArticuloDetalle, NodoIndice
+from app.models.conocimiento.esquemas import (
+    ResultadoBusqueda, ArticuloDetalle, NodoIndice, VersionCorpus, PaginaCorpus
+)
 from app.controllers.conocimiento.consulta_normas_controller import (
     buscar_normativa, leer_articulo, obtener_indice, ArticuloNoEncontradoError
 )
+from app.controllers.conocimiento.corpus_controller import huella_corpus, pagina_corpus
 
 router = APIRouter(prefix="/normativa", tags=["normativa"])
 
@@ -71,3 +74,27 @@ def endpoint_obtener_indice(
 ):
     """Obtener el índice jerárquico de la normativa."""
     return obtener_indice(db, codigo)
+
+@router.get("/corpus/version", response_model=VersionCorpus)
+def endpoint_huella_corpus(
+    codigo: str = Query(..., description="Código a consultar"),
+    db: Session = Depends(get_db)
+):
+    """Identifica el estado del corpus para ver si cambio."""
+    version = huella_corpus(db, codigo)
+    if not version:
+        raise HTTPException(status_code=404, detail="Código no encontrado o sin normas activas")
+    return version
+
+@router.get("/corpus", response_model=PaginaCorpus)
+def endpoint_pagina_corpus(
+    codigo: str = Query(..., description="Código a consultar"),
+    desde: int = Query(0, ge=0),
+    limite: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """Obtiene una pagina del corpus completo."""
+    pagina = pagina_corpus(db, codigo, desde, limite)
+    if not pagina:
+        raise HTTPException(status_code=404, detail="Código no encontrado o sin normas activas")
+    return pagina
