@@ -43,3 +43,11 @@ debug_rechazos_juridicos/
 scratchpad/
 docs/benchmarks/
 docs/evaluacion_*.json
+
+# ---- Volcados y respaldos de base de datos ----
+*.dump
+*.bak
+*.sql.gz
+backups/
+dumps/
+*.backup

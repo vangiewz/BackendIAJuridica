@@ -1,21 +1,33 @@
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
-pytest
-httpx
-sqlalchemy
+# Backend IA Juridica. Probado con Python 3.13 (ver README).
+# Solo dependencias directas: las transitivas las resuelve pip.
+
+# --- API ---
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+email-validator==2.3.0
+
+# --- Base de datos (PostgreSQL + pgvector) ---
+sqlalchemy==2.0.54
+psycopg[binary]==3.3.6
 pgvector==0.4.2
-psycopg[binary]
+alembic==1.20.0
 
-pyjwt
-bcrypt
-alembic
-email-validator
+# --- Autenticacion ---
+pyjwt==2.14.0
+bcrypt==5.0.0
 
+# --- Cliente HTTP (Ollama local) ---
+httpx==0.28.1
+
+# --- Documentos: lectura y generacion ---
 pypdf==6.19.0
-python-docx
-python-multipart
-openpyxl
-python-pptx
-reportlab
+python-docx==1.2.0
+openpyxl==3.1.5
+python-pptx==1.0.2
+reportlab==5.0.1
+
+# --- Tests ---
+pytest==9.1.1
