@@ -101,3 +101,9 @@ def obtener_consulta(db: Session, consulta_id: UUID, usuario_id: UUID) -> Consul
         estado=consulta.estado,
         creada_en=consulta.creada_en
     )
+
+def consulta_por_operacion(db: Session, usuario_id: UUID, client_op_id: UUID) -> Consulta | None:
+    """La consulta que ya creo esta operacion de cliente, si existe."""
+    if not client_op_id:
+        return None
+    return db.scalar(select(Consulta).where(Consulta.usuario_id == usuario_id, Consulta.client_op_id == client_op_id))

@@ -1,5 +1,6 @@
 from uuid import UUID
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencias import usuario_actual
@@ -8,7 +9,7 @@ from app.models.consultas.esquemas import ConsultaRequest, ConsultaResponse, His
 from app.controllers.consultas.resolver_consulta_controller import (
     documento_del_usuario, resolver_consulta,
 )
-from app.controllers.consultas.historial_controller import obtener_historial, obtener_consulta
+from app.controllers.consultas.historial_controller import obtener_historial, obtener_consulta, consulta_por_operacion
 from app.controllers.consultas.errores import ConsultaNoEncontradaError
 
 router = APIRouter(prefix="/consultas", tags=["Consultas Juridicas"])
@@ -33,19 +34,38 @@ def _procesar(consulta_id, usuario_id, request):
 
 
 @router.post("/iniciar", status_code=status.HTTP_202_ACCEPTED)
-def iniciar_consulta(request: ConsultaRequest, tareas: BackgroundTasks,
+def iniciar_consulta(request: ConsultaRequest, tareas: BackgroundTasks, response: Response,
                      db: Session = Depends(get_db), usuario: Usuario = Depends(usuario_actual)):
     from app.models.consultas.consulta import Consulta
     from app.models.shared.enums import EstadoProceso
+
+    if request.client_op_id:
+        existente = consulta_por_operacion(db, usuario.id, request.client_op_id)
+        if existente:
+            response.status_code = status.HTTP_200_OK
+            return {"id": existente.id, "estado": existente.estado}
+
     # El documento se valida contra el usuario del token antes de dejarlo anotado:
     # un id ajeno no queda ni siquiera registrado en la consulta.
     documento = documento_del_usuario(db, request.documento_id, usuario.id)
     consulta = Consulta(usuario_id=usuario.id, texto=request.texto, estado=EstadoProceso.PROCESANDO,
                         documento_id=documento.id if documento else None,
+                        client_op_id=request.client_op_id,
                         terminos_detectados=[], etapa_ia="Preparando consulta...")
-    db.add(consulta)
-    db.commit()
-    db.refresh(consulta)
+    try:
+        db.add(consulta)
+        db.commit()
+        db.refresh(consulta)
+    except IntegrityError:
+        # Otra peticion con el mismo client_op_id gano la carrera entre el SELECT de
+        # arriba y este commit. La constraint la freno antes de duplicar nada: se
+        # devuelve la que quedo, que es la misma respuesta que habria dado el SELECT.
+        db.rollback()
+        gemela = consulta_por_operacion(db, usuario.id, request.client_op_id)
+        if gemela is None:
+            raise
+        response.status_code = status.HTTP_200_OK
+        return {"id": gemela.id, "estado": gemela.estado}
     tareas.add_task(_procesar, consulta.id, usuario.id, request)
     return {"id": consulta.id, "estado": consulta.estado}
 

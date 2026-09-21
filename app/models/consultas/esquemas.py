@@ -11,6 +11,7 @@ class ConsultaRequest(BaseModel):
     # Documento activo de la conversacion, si lo hay. La pertenencia se comprueba en el
     # backend contra el usuario del token: no se confia en este id.
     documento_id: UUID | None = None
+    client_op_id: UUID | None = None
 
 class FuenteLegalResponse(BaseModel):
     norma_id: UUID | None = None
