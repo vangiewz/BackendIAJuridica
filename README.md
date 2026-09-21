@@ -145,6 +145,9 @@ Ver `.env.example` (cada variable esta comentada). Las principales:
 | `JWT_SECRET` | Clave para firmar tokens JWT | Si (salvo en development) | *(generar uno)* |
 | `JWT_ACCESS_MINUTOS` / `JWT_REFRESH_DIAS` | Vigencia de los tokens | No | `30` / `7` |
 | `IA_PIPELINE` | `simple` (recomendado) o `advanced` | No | `simple` |
+| `IA_ENABLED` | `false` apaga la IA y deja el respaldo lexico (obligatorio donde no hay Ollama, p. ej. en la nube) | No | `true` |
+| `CORS_ORIGINS` | Origenes web autorizados, separados por coma | No | `https://mi-frontend.vercel.app,http://localhost:8081` |
+| `CORS_ORIGIN_REGEX` | Patron extra de origenes (previews de Vercel). Vacio lo desactiva | No | `^https://ia-juridica[\w-]*\.vercel\.app$` |
 | `OLLAMA_URL` | Ollama local (solo loopback) | No | `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` / `EMBEDDING_MODEL` | Modelos locales | No | `qwen3:8b` / `qwen3-embedding:0.6b` |
 | `OLLAMA_NUM_CTX` | Ventana de contexto | No | `8192` |

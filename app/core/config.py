@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     rag_parallel_embedding: bool = True
     ia_pipeline: Literal["simple", "advanced"] = "simple"
     ia_enabled: bool = True
+    # Origenes web autorizados. Van separados por coma porque una variable de entorno no
+    # admite listas: el frontend publicado mas los puertos de Expo/Metro en local.
+    cors_origins: str = (
+        "https://ia-juridica-weld.vercel.app,"
+        "http://localhost:8081,http://localhost:19006,http://localhost:3000,"
+        "http://localhost:8082,http://localhost:5173,"
+        "http://127.0.0.1:8081,http://127.0.0.1:19006,http://127.0.0.1:3000"
+    )
+    # Cada preview de Vercel estrena subdominio, asi que se autoriza por patron.
+    cors_origin_regex: str = r"^https://ia-juridica[\w-]*\.vercel\.app$"
+
+    @property
+    def origenes_cors(self) -> list[str]:
+        """Lista explicita: el comodin '*' es invalido cuando se permiten credenciales."""
+        return [origen.strip().rstrip("/") for origen in self.cors_origins.split(",") if origen.strip()]
 
     @field_validator("ollama_url")
     @classmethod
