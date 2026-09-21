@@ -177,6 +177,11 @@ class BorradorIA(Estricto):
     campos_faltantes: list[str] = Field(default_factory=list)
     fuentes: list[FuenteIA] = Field(default_factory=list)
     motivo: str | None = None
+    # Si el borrador no se pudo validar: la regla que falló, lo que la disparó (una palabra, una cifra) y
+    # la cláusula donde apareció. Permite decirle al usuario QUÉ pasó en vez de un error genérico.
+    motivo_codigo: str | None = None
+    detalle_rechazo: str | None = None
+    clausula_rechazada: str | None = None
     trazabilidad: dict = Field(default_factory=dict)
 
 
