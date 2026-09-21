@@ -1,6 +1,15 @@
 """Las suites normales verifican el backend sin llamar al servidor de IA."""
 import pytest
 from app.core.config import get_settings
+from app.services.ia.cache_modelos import limpiar_cache
+
+
+@pytest.fixture(autouse=True)
+def cache_de_modelos_limpio():
+    """El memo vive en el modulo: sin esto un test se saltea las peticiones que otro ya cacheo."""
+    limpiar_cache()
+    yield
+    limpiar_cache()
 
 
 @pytest.fixture(autouse=True)

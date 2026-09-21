@@ -1,8 +1,10 @@
 # IA local: instalación, operación y estado
 
-Toda la inferencia ocurre en esta máquina, contra un servidor Ollama de loopback.
-No se usa ninguna API externa de modelos: la configuración rechaza destinos que no
-sean `localhost`/`127.0.0.1` y los modelos con variante *cloud*.
+La inferencia corre en una máquina del equipo, contra un servidor Ollama propio: por
+omisión el de esta PC en loopback, u opcionalmente el de otra PC del equipo detrás de un
+túnel autenticado (§15). No se usa ninguna API externa de modelos: la configuración
+rechaza los modelos con variante *cloud*, y cualquier destino remoto que no venga sobre
+TLS y con credenciales.
 
 ## Estado actual
 
@@ -69,7 +71,8 @@ no se comparten ni se versionan (`.gitignore` ya excluye `.env`).
 
 | Variable | Valor por defecto | Uso |
 |---|---|---|
-| `OLLAMA_URL` | `http://127.0.0.1:11434` | Servidor local; se rechazan destinos externos |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Loopback sobre `http`, o remoto sobre `https` con credenciales (§15) |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | *(vacías)* | Service token; solo se usan si `OLLAMA_URL` es remoto |
 | `OLLAMA_MODEL` | `qwen3:8b` | Generación estructurada |
 | `OLLAMA_TIMEOUT` | `180` | Timeout de lectura en segundos; conexión: 3 s |
 | `OLLAMA_TEMPERATURE` | `0` | Máximo permitido 0.3 |
@@ -242,6 +245,92 @@ texto de una norma a la mitad (si no entra, la fuente se omite y queda registrad
 7. `python -m scripts.diagnosticar_ia` para confirmar el entorno.
 
 No hay rutas absolutas en el código: todo se resuelve por variables de entorno.
+
+El paso 2 es opcional si esa PC va a consultarle la IA a otra máquina del equipo en vez de
+correr su propio modelo: ver §15.
+
+## 15. Servir la IA al equipo por un túnel
+
+El backend publicado en Azure no tiene GPU. La inferencia puede venir de una PC del equipo,
+exponiendo **solo Ollama** detrás de un túnel de Cloudflare con autenticación.
+
+```
+App (Vercel)  ->  API (Azure)  ->  https://ia.<dominio>  ->  cloudflared  ->  127.0.0.1:11434
+```
+
+### Por qué un túnel y no abrir el puerto
+
+Ollama **no tiene autenticación propia**: cualquiera que llegue a su puerto puede usar la GPU,
+cargar modelos o borrar los que estén instalados. Por eso el backend valida el destino
+(`app/core/ollama_destino.py`) y solo acepta dos formas: loopback sobre `http`, o remoto sobre
+`https` **con** las credenciales. El túnel además sale hacia afuera, así que no hace falta IP
+pública, ni reenvío de puertos, ni tocar el firewall, y funciona detrás de CGNAT.
+
+### Alta, una sola vez
+
+1. **Namecheap** (lo hace quien sea dueño del dominio): dos registros `NS` para el host `ia`,
+   apuntando a los nameservers que dé Cloudflare. No afecta al resto del dominio.
+2. **Cloudflare** (plan Free): agregar `ia.<dominio>` como zona propia.
+3. **Zero Trust → Networks → Tunnels**: crear el túnel, instalar `cloudflared` en la PC con GPU
+   y agregar un *public hostname* `ia.<dominio>` → `HTTP` → `127.0.0.1:11434`.
+4. **Zero Trust → Access → Service auth**: crear un *service token*. El secreto se muestra
+   una sola vez.
+5. **Zero Trust → Access → Applications**: aplicación *self-hosted* sobre ese hostname, con una
+   única política de acción **Service Auth**. Sin políticas `Allow` para navegadores.
+
+Comprobación, antes de tocar el backend:
+
+```bash
+curl https://ia.<dominio>/api/tags \
+  -H "CF-Access-Client-Id: <id>" -H "CF-Access-Client-Secret: <secret>"
+curl -s -o /dev/null -w "%{http_code}\n" https://ia.<dominio>/api/tags   # sin token: 302 o 403
+```
+
+### Operación diaria
+
+Quien sirve la IA:
+
+```powershell
+.\scripts\servir_ia.ps1 -Tunel <nombre-del-tunel> -Hostname ia.<dominio>
+```
+
+Quien la consulta cambia **una sola variable**. El token se deja puesto de forma permanente en
+el `.env`, porque `Settings.ollama_cabeceras` devuelve `{}` cuando la URL es loopback:
+
+```bash
+OLLAMA_URL=http://127.0.0.1:11434      # mi propio Ollama
+OLLAMA_URL=https://ia.<dominio>        # la PC con GPU del equipo
+```
+
+`python -m scripts.diagnosticar_ia` confirma cuál de los dos está respondiendo.
+
+### El techo de 100 segundos
+
+El plan gratis de Cloudflare devuelve 524 si el origen no empieza a responder en 100 s, y
+`OllamaClient.generar` **no usa streaming**: espera la respuesta completa. La consulta normal
+promedia 34,2 s con `rag_top_k=3` (§12), así que entra con margen. Lo que no entra es
+`rag.responder_caso_complejo`, que pide hasta 600 s: ese flujo queda para uso local.
+
+Por eso con el túnel se configura `OLLAMA_TIMEOUT=95`, para que corte el cliente y no
+Cloudflare: el error sale como `IANoDisponible` y no como un 524 sin explicación.
+
+Meter streaming en `generar()` sacaría el techo, pero toca salida estructurada con schema,
+validación y conteo de tokens. Está anotado como trabajo pendiente en el `ADR-011`.
+
+### Si la PC que sirve se apaga
+
+No se rompe nada: es exactamente lo descrito en §11. El fallo de conexión se traduce a
+`IANoDisponible` y la consulta responde con el respaldo léxico sobre la normativa, citando
+fuentes igual (HU-05).
+
+### Cachés de chequeo previo
+
+Una consulta hacía 5 peticiones HTTP a Ollama y 3 eran chequeos repetidos (`/api/tags` y dos
+`/api/show`). En loopback no se notaban; por el túnel eran 3 viajes de red por consulta. Ahora
+se memorizan en `app/services/ia/cache_modelos.py` durante `OLLAMA_PREFLIGHT_TTL` segundos
+(300 por defecto, `0` desactiva). Solo se cachean los chequeos exitosos: un fallo no queda
+guardado, así el sistema se recupera apenas la PC vuelve, sin esperar el vencimiento.
+`scripts/diagnosticar_ia.py` no usa el caché, porque existe para reportar el estado real.
 
 ## Pendiente: el warm-up debe usar el contexto del flujo complejo
 

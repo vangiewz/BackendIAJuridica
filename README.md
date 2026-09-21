@@ -116,8 +116,9 @@ consultas se calculan en CPU a proposito (`EMBEDDING_NUM_GPU=0`, valor validado)
    Si la red esta marcada como *Public*, cambiarla a *Private* (`Get-NetConnectionProfile`, `Set-NetConnectionProfile`).
 4. Desde el otro equipo: `http://IP_DE_ESTA_PC:8000/api/v1/health`.
 
-**No abras el puerto 11434 (Ollama) a la red.** Ollama debe quedarse local en esta PC: el backend solo
-acepta `OLLAMA_URL` de loopback y es el unico que habla con el.
+**No abras el puerto 11434 (Ollama) a la red.** Ollama se queda escuchando en loopback. Si querés que
+el equipo le consulte a tu GPU, no abras el puerto: usá el tunel autenticado de
+[Servir la IA al equipo](#servir-la-ia-al-equipo).
 
 ## Problemas frecuentes
 
@@ -173,6 +174,53 @@ az webapp config appsettings set -g rg-ia-juridica-eus -n ia-juridica-api --sett
 Ademas de las de la tabla de abajo, el sitio necesita `WEBSITES_PORT=8000` para que Azure sepa
 a que puerto hablarle.
 
+## Servir la IA al equipo
+
+El backend en Azure no tiene GPU, asi que la inferencia la puede dar una PC del equipo. Lo unico
+que se publica es **Ollama**, detras de un tunel de Cloudflare con token: el resto del sistema no
+cambia.
+
+```
+App (Vercel)  ->  API (Azure)  ->  https://ia.<dominio>  ->  cloudflared  ->  127.0.0.1:11434
+```
+
+### Consultarle la IA a otra maquina
+
+Es **una sola variable**. Con el token ya puesto en tu `.env` (se ignora cuando la URL es
+loopback, asi que podes dejarlo ahi para siempre):
+
+```bash
+OLLAMA_URL=http://127.0.0.1:11434      # mi propio Ollama
+OLLAMA_URL=https://ia.<dominio>        # la PC con GPU del equipo
+```
+
+Comprobalo con `python -m scripts.diagnosticar_ia`: tiene que listar los dos modelos y medir un
+embedding.
+
+### Servir la IA desde esta PC
+
+Requiere `cloudflared` instalado y un tunel ya creado en el panel de Cloudflare Zero Trust,
+apuntando a `http://127.0.0.1:11434`, con una politica de **Service Auth** sobre el hostname.
+
+```powershell
+.\scripts\servir_ia.ps1 -Tunel <nombre-del-tunel> -Hostname ia.<dominio>
+```
+
+El script comprueba que Ollama responda, precarga los modelos en la GPU y levanta el tunel.
+Mientras corra, el equipo tiene IA; con `Ctrl+C` deja de servir y las consultas vuelven al
+respaldo lexico. **No hay que abrir ningun puerto ni tocar el firewall**: `cloudflared` abre una
+conexion hacia afuera, asi que funciona incluso detras de CGNAT, y Ollama se queda en loopback.
+
+### Dos limites que conviene saber
+
+- **100 segundos.** El plan gratis de Cloudflare corta la peticion si el origen no empieza a
+  responder en 100 s, y el cliente no usa streaming. Una consulta normal promedia 34 s, pero el
+  flujo de *caso complejo* (timeout de 600 s) no entra: queda para uso local. Por eso con el
+  tunel se usa `OLLAMA_TIMEOUT=95`, para cortar antes y dar un error limpio en vez de un 524.
+- **Si la PC se apaga, no se rompe nada.** El fallo se traduce a `IANoDisponible` y la consulta
+  responde con el respaldo lexico sobre la normativa, citando fuentes igual (HU-05). Es el mismo
+  camino que con `IA_ENABLED=false`.
+
 ## Variables de entorno
 
 Ver `.env.example` (cada variable esta comentada). Las principales:
@@ -187,7 +235,11 @@ Ver `.env.example` (cada variable esta comentada). Las principales:
 | `IA_ENABLED` | `false` apaga la IA y deja el respaldo lexico (obligatorio donde no hay Ollama, p. ej. en la nube) | No | `true` |
 | `CORS_ORIGINS` | Origenes web autorizados, separados por coma | No | `https://mi-frontend.vercel.app,http://localhost:8081` |
 | `CORS_ORIGIN_REGEX` | Patron extra de origenes (previews de Vercel). Vacio lo desactiva | No | `^https://ia-juridica[\w-]*\.vercel\.app$` |
-| `OLLAMA_URL` | Ollama local (solo loopback) | No | `http://127.0.0.1:11434` |
+| `OLLAMA_URL` | A donde se le pide la inferencia: loopback sobre `http`, o remoto sobre `https` con credenciales | No | `http://127.0.0.1:11434` |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | Service token de Cloudflare Access. Obligatorias si `OLLAMA_URL` es remoto; se ignoran si es loopback | Solo con IA remota | *(las da quien sirve la IA)* |
+| `OLLAMA_CONNECT_TIMEOUT` | Segundos para establecer la conexion (`10` con el tunel de por medio) | No | `3` |
+| `OLLAMA_PREFLIGHT_TTL` | Vigencia del cache de chequeos de modelo, en segundos. `0` lo desactiva | No | `300` |
+| `OLLAMA_TIMEOUT` | Espera de la respuesta del modelo. Con el tunel, `95` (Cloudflare corta a los 100 s) | No | `180` |
 | `OLLAMA_MODEL` / `EMBEDDING_MODEL` | Modelos locales | No | `qwen3:8b` / `qwen3-embedding:0.6b` |
 | `OLLAMA_NUM_CTX` | Ventana de contexto | No | `8192` |
 

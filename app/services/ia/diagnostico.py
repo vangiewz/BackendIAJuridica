@@ -56,7 +56,9 @@ def diagnosticar_base(settings: Settings) -> dict:
 
 def diagnosticar(settings: Settings | None = None, medir_embedding: bool = False) -> dict:
     settings = settings or get_settings()
-    client = OllamaClient(settings)
+    # Sin el cache de chequeos previos: un diagnostico que repite lo que vio hace cinco
+    # minutos diria "ok" con Ollama caido, que es justo lo que se viene a averiguar.
+    client = OllamaClient(settings.model_copy(update={"ollama_preflight_ttl": 0}))
     result = {"ollama_disponible": False, "modelo_principal_disponible": False,
               "embedding_disponible": False, "embedding_dimensiones": None,
               "modelo_principal": settings.ollama_model,

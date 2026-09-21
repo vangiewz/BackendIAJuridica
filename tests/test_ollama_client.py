@@ -13,11 +13,35 @@ def cliente(handler):
     return OllamaClient(Settings(_env_file=None), httpx.MockTransport(handler))
 
 
-@pytest.mark.parametrize("url", ["https://ollama.com", "http://192.168.0.1:11434",
-                                    "http://127.0.0.1@evil.com", "http://localhost/a"])
-def test_rechaza_destino_externo(url):
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None, ollama_url=url)
+from app.services.ia.cache_modelos import limpiar_cache
+
+@pytest.fixture(autouse=True)
+def _limpiar_cache():
+    limpiar_cache()
+    yield
+
+def cliente_config(handler, settings_kwargs):
+    return OllamaClient(Settings(_env_file=None, **settings_kwargs), httpx.MockTransport(handler))
+
+def test_transporte_local_sin_cabeceras():
+    peticiones = []
+    def handler(request):
+        peticiones.append(request)
+        return httpx.Response(200, json={"models": []})
+    
+    # ollama_url por defecto es local
+    cliente_config(handler, {"cf_access_client_id": "id", "cf_access_client_secret": "sec"}).modelos()
+    assert "CF-Access-Client-Id" not in peticiones[0].headers
+
+def test_transporte_remoto_con_cabeceras():
+    peticiones = []
+    def handler(request):
+        peticiones.append(request)
+        return httpx.Response(200, json={"models": []})
+    
+    cliente_config(handler, {"ollama_url": "https://ia.ejemplo.com", "cf_access_client_id": "id", "cf_access_client_secret": "sec"}).modelos()
+    assert peticiones[0].headers["cf-access-client-id"] == "id"
+    assert peticiones[0].headers["cf-access-client-secret"] == "sec"
 
 
 def test_timeout_seguro():

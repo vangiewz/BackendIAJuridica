@@ -12,38 +12,22 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.config import Settings, get_settings
 from app.services.ia.metricas import medir, registrar_llm, rechazo, sumar
+from app.services.ia.cache_modelos import modelos_cacheados, modelo_comprobado
+# Se reexportan: veintinueve modulos las importan desde aqui.
+from app.services.ia.errores import IAError, IANoDisponible, RespuestaInvalida
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
 @lru_cache(maxsize=4)
-def _http_local(url):
+def _http_cliente(url, cabeceras: tuple[tuple[str, str], ...] = ()):
     # httpx.Client admite uso entre hilos. Solo se cachea transporte, nunca mensajes.
-    # La URL ya pasó la validación de loopback; no proxies ni redirecciones.
-    client = httpx.Client(base_url=url, trust_env=False, follow_redirects=False)
+    # No hay proxies de entorno ni redirecciones.
+    client = httpx.Client(base_url=url, headers=dict(cabeceras),
+                          trust_env=False, follow_redirects=False)
     atexit.register(client.close)
     return client
-
-
-class IAError(Exception):
-    """Error público seguro: nunca incluye cuerpo HTTP, consulta ni documento."""
-
-
-class IANoDisponible(IAError):
-    def __init__(self):
-        super().__init__("El servicio local de inteligencia artificial no está disponible.")
-
-
-class RespuestaInvalida(IAError):
-    """El motivo es interno: sirve para trazas y reintentos, nunca se muestra al usuario."""
-
-    def __init__(self, motivo: str = "no_especificado", detalle: str = ""):
-        self.motivo = motivo
-        # Qué disparó el rechazo (el número o el identificador concreto). No se le muestra
-        # al usuario; sirve para que una traza diga por qué se descartó una respuesta.
-        self.detalle = detalle
-        super().__init__("El servicio local de IA devolvió una respuesta que no pudo validarse.")
 
 
 class OllamaClient:
@@ -57,15 +41,21 @@ class OllamaClient:
         status = "error"
         data = {}
         try:
-            # No proxies de entorno ni redirecciones hacia destinos externos.
+            # Sin proxies de entorno ni redirecciones: el destino ya paso por validar_destino.
             from contextlib import nullcontext
-            connection = (httpx.Client(base_url=self.settings.ollama_url, trust_env=False,
-                          follow_redirects=False, transport=self.transport)
-                          if self.transport is not None else nullcontext(_http_local(self.settings.ollama_url)))
+            cabeceras = tuple(sorted(self.settings.ollama_cabeceras.items()))
+            connection = (httpx.Client(base_url=self.settings.ollama_url, headers=dict(cabeceras),
+                          trust_env=False, follow_redirects=False, transport=self.transport)
+                          if self.transport is not None
+                          else nullcontext(_http_cliente(self.settings.ollama_url, cabeceras)))
             with connection as client:
                 response = client.request(method, path, json=payload,
-                    timeout=httpx.Timeout(timeout or self.settings.ollama_timeout, connect=3))
-                response.raise_for_status()
+                    timeout=httpx.Timeout(timeout or self.settings.ollama_timeout,
+                                          connect=self.settings.ollama_connect_timeout))
+                # Cubre tambien los 3xx: con follow_redirects=False, un token vencido devuelve
+                # el 302 al login de Cloudflare, que raise_for_status() dejaria pasar.
+                if not response.is_success:
+                    raise IANoDisponible()
                 data = response.json()
                 if not isinstance(data, dict) or "error" in data:
                     raise RespuestaInvalida()
@@ -90,18 +80,22 @@ class OllamaClient:
                             data.get("eval_count") if isinstance(data, dict) else None)
 
     def modelos(self) -> dict[str, str]:
-        data = self._request("GET", "/api/tags", timeout=5)
-        try:
-            return {item["name"]: item["digest"] for item in data["models"]}
-        except (KeyError, TypeError):
-            raise RespuestaInvalida() from None
+        def _consultar():
+            data = self._request("GET", "/api/tags", timeout=5)
+            try:
+                return {item["name"]: item["digest"] for item in data["models"]}
+            except (KeyError, TypeError):
+                raise RespuestaInvalida() from None
+        return modelos_cacheados(self.settings.ollama_url, self.settings.ollama_preflight_ttl, _consultar)
 
     def comprobar_modelo(self, model: str, capability: str) -> None:
-        data = self._request("POST", "/api/show", {"model": model}, timeout=5)
-        if data.get("remote_host") or data.get("remote_model"):
-            raise IANoDisponible()
-        if capability not in data.get("capabilities", []):
-            raise RespuestaInvalida()
+        def _comprobar():
+            data = self._request("POST", "/api/show", {"model": model}, timeout=5)
+            if data.get("remote_host") or data.get("remote_model"):
+                raise IANoDisponible()
+            if capability not in data.get("capabilities", []):
+                raise RespuestaInvalida()
+        modelo_comprobado(self.settings.ollama_url, model, capability, self.settings.ollama_preflight_ttl, _comprobar)
 
     def generar(self, messages: list[dict], schema: type[T], intentos: int = 2,
                 timeout: float | None = None) -> T:

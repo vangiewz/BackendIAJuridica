@@ -1,9 +1,9 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator, model_validator
-from urllib.parse import urlsplit
-from ipaddress import ip_address
 from typing import Literal
+
+from app.core.ollama_destino import validar_destino, es_local, cabeceras_acceso
 
 class Settings(BaseSettings):
     """Configuración principal de la aplicación."""
@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     jwt_access_minutos: int = 30
     jwt_refresh_dias: int = 7
     ollama_url: str = "http://127.0.0.1:11434"
+    cf_access_client_id: str = ""
+    cf_access_client_secret: str = ""
+    ollama_connect_timeout: float = Field(default=3, gt=0, le=30)
+    ollama_preflight_ttl: int = Field(default=300, ge=0, le=3600)
     ollama_model: str = "qwen3:8b"
     ollama_timeout: float = Field(default=180, gt=0, le=600)
     ollama_temperature: float = Field(default=0, ge=0, le=0.3)
@@ -59,18 +63,22 @@ class Settings(BaseSettings):
         """Lista explicita: el comodin '*' es invalido cuando se permiten credenciales."""
         return [origen.strip().rstrip("/") for origen in self.cors_origins.split(",") if origen.strip()]
 
+    @property
+    def ollama_es_remoto(self) -> bool:
+        """True si el destino de ollama_url no es local."""
+        return not es_local(self.ollama_url)
+
+    @property
+    def ollama_cabeceras(self) -> dict[str, str]:
+        """Vacio cuando el destino es local: por eso el token puede quedar siempre en el .env."""
+        if not self.ollama_es_remoto:
+            return {}
+        return cabeceras_acceso(self.cf_access_client_id, self.cf_access_client_secret)
+
     @field_validator("ollama_url")
     @classmethod
-    def solo_ollama_local(cls, value: str) -> str:
-        url = urlsplit(value)
-        try:
-            local = url.hostname == "localhost" or ip_address(url.hostname or "").is_loopback
-        except ValueError:
-            local = False
-        if (not local or url.scheme != "http" or url.username or url.password
-                or url.path not in ("", "/") or url.query or url.fragment):
-            raise ValueError("OLLAMA_URL debe apuntar a HTTP de loopback local sin credenciales")
-        return value.rstrip("/")
+    def destino_ollama_valido(cls, value: str) -> str:
+        return validar_destino(value)
 
     @field_validator("ollama_model", "embedding_model")
     @classmethod
@@ -91,6 +99,8 @@ class Settings(BaseSettings):
                 self.jwt_secret = secrets.token_urlsafe(32)
             else:
                 raise ValueError("JWT_SECRET es obligatorio en entornos que no son de desarrollo.")
+        if self.ollama_es_remoto and not self.ollama_cabeceras:
+            raise ValueError("Un OLLAMA_URL remoto exige CF_ACCESS_CLIENT_ID y CF_ACCESS_CLIENT_SECRET")
         return self
 
 @lru_cache()
